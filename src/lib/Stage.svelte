@@ -1,32 +1,55 @@
 <script>
   import Layer from './Layer.svelte'
   import { BY_ID, layout } from './ingredients.js'
-  import { dropIn, jiggleStack, thumpPlate, fitStack } from './animate.js'
+  import {
+    dropIn,
+    tumbleOff,
+    jiggleStack,
+    thumpTable,
+    fitStack,
+    flipGravity,
+    pressButton,
+  } from './animate.js'
 
-  let { layers, hoveredUid, onhover, linked } = $props()
+  let { layers, hoveredUid, onhover, onfell, linked } = $props()
 
-  // Widest thing on the plate, used to keep the sandwich inside the stage.
+  // Widest thing on the table, used to keep the sandwich inside the stage.
   const NATURAL_WIDTH = 480
 
-  let stageEl, stackEl, plateEl, shadowEl
+  let stageEl, stackEl, shadowEl
+  let inverted = $state(false)
+
+  // How close the pile hangs to the top of the stage once gravity flips.
+  const CEILING = 24
   let layerEls = $state({})
   let stageW = $state(0)
   let stageH = $state(0)
 
+  // What is actually on the table. A layer that fell off keeps its place in the
+  // list — it is still in the document, just not in the pile.
+  const onTable = $derived(layers.filter((l) => l.role !== 'fallen'))
+
   // Height of the stack line for each layer: everything added before it, piled up.
+  // A fallen layer is given the height it would have hit at, so it falls the same
+  // distance as anything else, but it adds nothing to the pile.
   const positions = $derived.by(() => {
     let height = 0
     return layers.map((layer) => {
       const bottom = height
-      height += BY_ID[layer.id].lift
+      if (layer.role !== 'fallen') height += BY_ID[layer.id].lift
       return bottom
     })
   })
 
+  // The top of the pile is the last layer that is actually on it — walked by index
+  // so this stays in step with `positions` above.
   const stackHeight = $derived.by(() => {
-    if (!layers.length) return 0
-    const top = BY_ID[layers.at(-1).id]
-    return positions.at(-1) + layout(top).contentHeight
+    let top = 0
+    layers.forEach((layer, i) => {
+      if (layer.role === 'fallen') return
+      top = positions[i] + layout(BY_ID[layer.id]).contentHeight
+    })
+    return top
   })
 
   // Shrink the pile so a tall sandwich — or a narrow window — never clips it.
@@ -51,6 +74,40 @@
     if (stackEl) fitStack(stackEl, scale)
   })
 
+  // Set by the button so the effect below knows this change is a deliberate flip
+  // and deserves the full performance, rather than a quiet correction.
+  let pendingFlip = false
+  let appliedY = 0
+
+  function toggleGravity(event) {
+    pressButton(event.currentTarget)
+    pendingFlip = true
+    inverted = !inverted
+  }
+
+  // Under internet gravity the pile hangs from the top, so it is the *top* edge
+  // that has to stay put — otherwise adding a layer would push it off the screen.
+  // Recomputing on every change means the pile grows downward from the ceiling.
+  // offsetTop is the untransformed layout position, so the tween cannot feed itself.
+  $effect(() => {
+    const height = stackHeight * scale
+    void stageH // reposition the hanging pile when the window changes size
+    if (!stackEl) return
+
+    const y = inverted ? CEILING + height - stackEl.offsetTop : 0
+    const whimsical = pendingFlip
+    pendingFlip = false
+
+    if (!whimsical && y === appliedY) return
+    appliedY = y
+
+    flipGravity(stackEl, y, {
+      whimsical,
+      shadowEl,
+      layerEls: onTable.map((l) => layerEls[l.uid]).filter(Boolean),
+    })
+  })
+
   // Drop each new layer in exactly once. Tracked by id rather than by count so
   // that a fast clicker never gets a layer that skips its fall and just appears.
   const dropped = new Set()
@@ -66,6 +123,7 @@
 
       const below = layers
         .slice(0, i)
+        .filter((l) => l.role !== 'fallen')
         .map((l) => layerEls[l.uid])
         .filter(Boolean)
 
@@ -74,11 +132,23 @@
       // browser only fires mouseleave once the *pointer* moves again.
       el.style.pointerEvents = 'none'
 
+      const onImpact = () => {
+        jiggleStack(below)
+        // Nothing is touching the table while the pile hangs off the ceiling, and
+        // thumping would fade the shadow back in behind our back.
+        if (!inverted) thumpTable(shadowEl)
+      }
+
+      // Nothing open to land in: it clips the pile and carries on off the table.
+      // Its pointer events stay off for good, because it is no longer there.
+      if (layer.role === 'fallen') {
+        tumbleOff(el, { onImpact, onGone: () => onfell?.(layer.uid), fromBelow: inverted })
+        return
+      }
+
       dropIn(el, {
-        onImpact: () => {
-          jiggleStack(below)
-          thumpPlate(plateEl, shadowEl)
-        },
+        onImpact,
+        fromBelow: inverted,
         onSettled: () => {
           el.style.pointerEvents = ''
         },
@@ -92,11 +162,10 @@
 </script>
 
 <div class="stage" bind:this={stageEl}>
-  <div class="counter"></div>
+  <div class="table"></div>
 
   <div class="stack" bind:this={stackEl}>
     <div class="shadow" bind:this={shadowEl}></div>
-    <div class="plate" bind:this={plateEl}></div>
 
     {#each layers as layer, i (layer.uid)}
       <div class="slot" bind:this={layerEls[layer.uid]}>
@@ -112,9 +181,20 @@
     {/each}
   </div>
 
-  {#if !layers.length}
+  {#if !onTable.length}
     <p class="empty">Pick an ingredient to start your sandwich</p>
   {/if}
+
+  <button
+    type="button"
+    class="gravity"
+    class:on={inverted}
+    aria-pressed={inverted}
+    onclick={toggleGravity}
+  >
+    <span class="arrow" aria-hidden="true">↑</span>
+    {inverted ? 'Internet gravity' : 'Table gravity'}
+  </button>
 </div>
 
 <style>
@@ -127,8 +207,8 @@
     background: radial-gradient(120% 90% at 50% 0%, #5c4433 0%, #2b1d15 62%, #201510 100%);
   }
 
-  /* The counter top the plate sits on. */
-  .counter {
+  /* The bare table the sandwich lands on. */
+  .table {
     position: absolute;
     inset: auto 0 0 0;
     height: 5.5rem;
@@ -139,34 +219,24 @@
   .stack {
     position: absolute;
     left: 50%;
-    bottom: 4.6rem;
+    /* Sits on the table's top edge, which is exactly the table's height. */
+    bottom: 5.5rem;
     width: 0;
-    /* Grows upward from the plate, and scales about the same point. */
+    /* Grows upward from the table, and scales about the same point. */
     transform-origin: 50% 100%;
   }
 
-  .plate {
-    position: absolute;
-    left: 50%;
-    bottom: -0.9rem;
-    width: 27rem;
-    height: 2.1rem;
-    margin-left: -13.5rem;
-    background: linear-gradient(#f6efe4, #cdbfae 55%, #a9998a);
-    border-radius: 50%;
-    box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.7);
-    transform-origin: 50% 100%;
-  }
-
+  /* The sandwich's own contact shadow, now that nothing sits under it. Sized to
+     the bread (380px of content) rather than to the plate that used to be here. */
   .shadow {
     position: absolute;
     left: 50%;
-    bottom: -1.4rem;
-    width: 30rem;
-    height: 2.2rem;
-    margin-left: -15rem;
-    background: radial-gradient(50% 50%, rgba(0, 0, 0, 0.55), transparent 70%);
-    opacity: 0.34;
+    bottom: -0.75rem;
+    width: 23rem;
+    height: 1.5rem;
+    margin-left: -11.5rem;
+    background: radial-gradient(50% 50%, rgba(0, 0, 0, 0.72), transparent 72%);
+    opacity: 0.55;
     filter: blur(6px);
   }
 
@@ -176,6 +246,49 @@
     bottom: 0;
     width: 0;
     height: 0;
+  }
+
+  /* Bottom-right of the stage, sitting on the table like a light switch. */
+  .gravity {
+    position: absolute;
+    right: 1rem;
+    bottom: 1rem;
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    padding: 0.45rem 0.8rem;
+    font: inherit;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--cream);
+    background: rgba(24, 15, 10, 0.72);
+    border: 1px solid var(--edge);
+    border-radius: 999px;
+    cursor: pointer;
+    transition: background 0.18s ease, border-color 0.18s ease;
+  }
+
+  .gravity:hover {
+    background: rgba(24, 15, 10, 0.92);
+  }
+
+  .gravity.on {
+    color: #21160f;
+    background: var(--accent2);
+    border-color: var(--accent2);
+  }
+
+  /* Points whichever way gravity is currently pulling. */
+  .arrow {
+    display: inline-block;
+    font-size: 0.95rem;
+    line-height: 1;
+    transform: rotate(180deg);
+    transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+
+  .gravity.on .arrow {
+    transform: rotate(0deg);
   }
 
   .empty {

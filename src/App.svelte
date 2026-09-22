@@ -12,11 +12,33 @@
   let nextUid = 0
   let stage
 
+  // The code is read top-down, so the *top* slice of bread is the opening <section>
+  // tag and the slice under the fillings is the closing one. Slices therefore
+  // alternate as you go up the pile: close, open, close, open — each pair being one
+  // sandwich, stacked as sibling <section> elements.
+  //
+  //   inside === true  -> a sandwich is open and fillings have somewhere to land
+  //   inside === false -> between sandwiches; only bread can start the next one
+  //
+  // Walked rather than counted, so it stays right after Undo, Reset, or an
+  // ingredient falling off.
+  const inside = $derived.by(() => {
+    let open = false
+    for (const layer of layers) {
+      if (layer.role === 'close') open = true
+      else if (layer.role === 'open') open = false
+    }
+    return open
+  })
+
+  // What fell off is not on the table, so it does not get counted.
+  const onTable = $derived(layers.filter((l) => l.role !== 'fallen'))
+
   // Until the HTML panel is open, the game talks about "layers" rather than
   // "elements" — the markup vocabulary arrives with the lesson, not before it.
   const noun = $derived(showCode ? 'element' : 'layer')
   const countLabel = $derived(
-    `${layers.length} ${noun}${layers.length === 1 ? '' : 's'}`,
+    `${onTable.length} ${noun}${onTable.length === 1 ? '' : 's'}`,
   )
 
   function toggleCode(event) {
@@ -27,7 +49,25 @@
   }
 
   function add(ingredient) {
-    layers = [...layers, { uid: nextUid++, id: ingredient.id }]
+    // Bread always has somewhere to go: it either seals the sandwich that is open
+    // or starts a new one on top of the last. A filling only stays if a sandwich is
+    // open to hold it.
+    const role = ingredient.container
+      ? inside
+        ? 'open'
+        : 'close'
+      : inside
+        ? 'filling'
+        : 'fallen'
+
+    layers = [...layers, { uid: nextUid++, id: ingredient.id, role }]
+  }
+
+  // It slid off the table, so it leaves the list too. Until this fires the layer is
+  // still here — it has to be, or there would be nothing to animate falling — but
+  // the code panel never writes it, so it was never part of the markup.
+  function fell(uid) {
+    layers = layers.filter((l) => l.uid !== uid)
   }
 
   function undo() {
@@ -93,6 +133,7 @@
       {hoveredUid}
       linked={showCode}
       onhover={(uid) => (hoveredUid = uid)}
+      onfell={fell}
     />
 
     <Tray onadd={add} disabled={busy} />

@@ -43,20 +43,34 @@ stumble onto, say so and it can be moved behind a modifier-click or a key combin
 
 - **Click any ingredient** in the right-hand tray. It falls, lands, and the layers
   underneath take the hit and wobble.
-- **Click the logo** when you are ready. Every ingredient turns out to be a `<div>`
-  *inside* `<div class="sandwich">` — that is the containment idea, made literal.
+- **Bread is the element, not a filling.** Slices alternate as the pile grows: the
+  one you put down writes the closing `</section>` tag, the next to land on top
+  writes the opening `<section>`, and whatever sits between them is inside.
+- **Stack more bread and you get more sandwiches.** A slice laid on a finished
+  sandwich starts the next one, so the code becomes two — or three, or five —
+  `<section>` elements stacked as siblings. This is the one to reach for when a
+  student asks whether an element can sit *next to* another instead of inside it.
+- **A filling with nowhere to land slides off the table.** Drop one before the first
+  slice of bread, or in the gap between a finished sandwich and the next slice, and
+  it glances off and slides away: there is no open element for it to belong to.
+  Nothing is written for it either — it never makes it into the markup. Bread always
+  lands, because it either closes the sandwich that is open or starts a new one.
+- **Click the logo** when you are ready. Each sandwich turns out to be a `<section>`
+  with one `<div>` per filling inside it — containment, made literal.
 - **Hover a line of code** and the matching slice lights up while the rest dim.
   Hover a slice and its line of code lights up. This is the part worth dwelling on.
+  Hovering `<section>` or `</section>` picks out the slice of bread that wrote it.
   The linking is only live while the panel is open.
-- **The order trips people up on purpose.** The first child in the code is the
-  *bottom* of the sandwich, because each new element is added after the last one.
-  Reading the code top-to-bottom is reading the sandwich bottom-to-top. Ask students
+- **The order matches the pile.** The first line is the *top* of the sandwich,
+  because in normal document flow an earlier element sits higher on the page.
+  Reading the code top-to-bottom is reading the sandwich top-to-bottom. Ask students
   to predict the code before they open the panel.
 - **Undo** removes the top layer; **Reset** topples the whole thing.
 
-Nothing stops a student from putting ketchup under the bottom slice of bread or
-stacking twenty pickles. Those "wrong" sandwiches are usually the useful ones to talk
-about — the browser will happily render nonsense too.
+The markup only becomes properly nested once the top slice lands. Until then the
+panel shows a closing tag with nothing open above it, and fillings sitting at no
+indent — which is honest, and worth showing on purpose. Half-built and "wrong"
+sandwiches are usually the most useful ones to talk about.
 
 ## How it is put together
 
@@ -64,8 +78,9 @@ about — the browser will happily render nonsense too.
 src/
   App.svelte              layout, the layer list, the logo switch, Undo / Reset
   lib/
-    ingredients.js        the seven ingredients and their measurements
-    Stage.svelte          the plate, the pile, and how tall each layer sits
+    ingredients.js        the seven ingredients, their measurements, and which
+                          one is structural (`container: true` on bread)
+    Stage.svelte          the table, the pile, and how tall each layer sits
     Layer.svelte          one slice
     Tray.svelte           the ingredient buttons
     CodePanel.svelte      the live HTML view

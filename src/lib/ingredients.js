@@ -27,6 +27,10 @@ export const BASE_WIDTH = 380
 export const INGREDIENTS = [
   {
     id: 'bread',
+    // `container: true` is what makes bread structural rather than a filling: the
+    // first slice writes the closing tag, the second writes the opening one and
+    // seals the sandwich. See `add()` in App.svelte.
+    container: true,
     label: 'Bread',
     src: bread,
     img: { w: 800, h: 378, padL: 31, padB: 61, cw: 754, ch: 255 },
