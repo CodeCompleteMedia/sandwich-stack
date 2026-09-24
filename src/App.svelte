@@ -8,6 +8,9 @@
   let showCode = $state(false)
   let hoveredUid = $state(null)
   let busy = $state(false)
+  // Internet gravity: the pile hangs from the ceiling and grows downward, so each
+  // new layer is added *under* the last one rather than on top of it.
+  let inverted = $state(false)
 
   let nextUid = 0
   let stage
@@ -20,16 +23,33 @@
   //   inside === true  -> a sandwich is open and fillings have somewhere to land
   //   inside === false -> between sandwiches; only bread can start the next one
   //
+  // `layers` is kept in pile order, bottom to top. New layers land on whichever end
+  // is growing — the top under table gravity, the bottom under internet gravity —
+  // so that is the end we walk towards. Coming up from the bottom, a closing slice
+  // opens a sandwich; coming down from the top, an opening slice does.
+  //
   // Walked rather than counted, so it stays right after Undo, Reset, or an
   // ingredient falling off.
   const inside = $derived.by(() => {
+    const walk = inverted ? [...layers].reverse() : layers
+    const opener = inverted ? 'open' : 'close'
     let open = false
-    for (const layer of layers) {
-      if (layer.role === 'close') open = true
-      else if (layer.role === 'open') open = false
+    for (const layer of walk) {
+      if (layer.role === 'close' || layer.role === 'open') open = layer.role === opener
     }
     return open
   })
+
+  // Uids only ever count up, so the newest layer is the highest one — wherever in
+  // the pile it ended up.
+  const newest = $derived(
+    layers.reduce((top, l) => (top && top.uid > l.uid ? top : l), null),
+  )
+
+  // Undo only takes back a layer under the gravity that put it there. Flip the
+  // switch and the newest layer is on the far end of the pile — pulling it off
+  // against gravity would mean reaching past the whole sandwich.
+  const canUndo = $derived(!!newest && newest.under === inverted)
 
   // What fell off is not on the table, so it does not get counted.
   const onTable = $derived(layers.filter((l) => l.role !== 'fallen'))
@@ -50,17 +70,22 @@
 
   function add(ingredient) {
     // Bread always has somewhere to go: it either seals the sandwich that is open
-    // or starts a new one on top of the last. A filling only stays if a sandwich is
-    // open to hold it.
+    // or starts a new one beyond the last. A filling only stays if a sandwich is
+    // open to hold it. Growing upward, the first slice is the bottom of a sandwich
+    // (its closing tag); growing downward, the first slice is the top (its opening
+    // tag) — either way the pile reads the same once the sandwich is sealed.
+    const opener = inverted ? 'open' : 'close'
+    const sealer = inverted ? 'close' : 'open'
     const role = ingredient.container
       ? inside
-        ? 'open'
-        : 'close'
+        ? sealer
+        : opener
       : inside
         ? 'filling'
         : 'fallen'
 
-    layers = [...layers, { uid: nextUid++, id: ingredient.id, role }]
+    const layer = { uid: nextUid++, id: ingredient.id, role, under: inverted }
+    layers = inverted ? [layer, ...layers] : [...layers, layer]
   }
 
   // It slid off the table, so it leaves the list too. Until this fires the layer is
@@ -71,11 +96,11 @@
   }
 
   function undo() {
-    if (!layers.length || busy) return
+    if (!canUndo || busy) return
     busy = true
-    const els = stage.getLayerEls()
-    liftOff(els.at(-1), () => {
-      layers = layers.slice(0, -1)
+    const { uid, under } = newest
+    liftOff(stage.getLayerEl(uid), under, () => {
+      layers = layers.filter((l) => l.uid !== uid)
       busy = false
     })
   }
@@ -86,6 +111,9 @@
     hoveredUid = null
     sweepAway(stage.getLayerEls(), () => {
       layers = []
+      // A clean table starts right way up. The gravity switch is locked until a
+      // sandwich is built, so otherwise it would be stuck hanging from the ceiling.
+      inverted = false
       busy = false
     })
   }
@@ -113,7 +141,7 @@
     </div>
 
     <div class="actions">
-      <button type="button" class="ghost" onclick={undo} disabled={!layers.length || busy}>
+      <button type="button" class="ghost" onclick={undo} disabled={!canUndo || busy}>
         Undo
       </button>
       <button type="button" class="danger" onclick={reset} disabled={!layers.length || busy}>
@@ -124,12 +152,13 @@
 
   <main>
     {#if showCode}
-      <CodePanel {layers} {hoveredUid} onhover={(uid) => (hoveredUid = uid)} />
+      <CodePanel {layers} newestUid={newest?.uid} {hoveredUid} onhover={(uid) => (hoveredUid = uid)} />
     {/if}
 
     <Stage
       bind:this={stage}
       {layers}
+      bind:inverted
       {hoveredUid}
       linked={showCode}
       onhover={(uid) => (hoveredUid = uid)}

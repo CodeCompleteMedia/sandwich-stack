@@ -11,13 +11,19 @@
     pressButton,
   } from './animate.js'
 
-  let { layers, hoveredUid, onhover, onfell, linked } = $props()
+  let {
+    layers,
+    inverted = $bindable(false),
+    hoveredUid,
+    onhover,
+    onfell,
+    linked,
+  } = $props()
 
   // Widest thing on the table, used to keep the sandwich inside the stage.
   const NATURAL_WIDTH = 480
 
   let stageEl, stackEl, shadowEl
-  let inverted = $state(false)
 
   // How close the pile hangs to the top of the stage once gravity flips.
   const CEILING = 24
@@ -29,14 +35,44 @@
   // list — it is still in the document, just not in the pile.
   const onTable = $derived(layers.filter((l) => l.role !== 'fallen'))
 
+  // The gravity switch only works while every sandwich on the table is whole: a
+  // bottom slice, at least one filling, and a top slice sealing them in. One
+  // half-built sandwich anywhere in the pile locks it, in either direction.
+  //
+  // Whichever way a sandwich was built, it ends up the same in the pile — closing
+  // slice at the bottom, opening slice on top — so one walk upward covers both.
+  // Walked rather than looked up, so it stays right after Undo or Reset.
+  const complete = $derived.by(() => {
+    let open = false
+    let filled = false
+    let sandwiches = 0
+    for (const layer of onTable) {
+      if (layer.role === 'close') {
+        if (open) return false
+        open = true
+        filled = false
+      } else if (layer.role === 'filling') {
+        filled = true
+      } else if (layer.role === 'open') {
+        if (!open || !filled) return false
+        open = false
+        sandwiches += 1
+      }
+    }
+    return !open && sandwiches > 0
+  })
+
   // Height of the stack line for each layer: everything added before it, piled up.
   // A fallen layer is given the height it would have hit at, so it falls the same
-  // distance as anything else, but it adds nothing to the pile.
+  // distance as anything else, but it adds nothing to the pile. One that came up
+  // from below hits the underside, so it sits a layer's thickness lower.
   const positions = $derived.by(() => {
     let height = 0
     return layers.map((layer) => {
+      const { lift } = BY_ID[layer.id]
+      if (layer.role === 'fallen') return layer.under ? height - lift : height
       const bottom = height
-      if (layer.role !== 'fallen') height += BY_ID[layer.id].lift
+      height += lift
       return bottom
     })
   })
@@ -78,8 +114,10 @@
   // and deserves the full performance, rather than a quiet correction.
   let pendingFlip = false
   let appliedY = 0
+  let appliedTop = null
 
   function toggleGravity(event) {
+    if (!complete) return
     pressButton(event.currentTarget)
     pendingFlip = true
     inverted = !inverted
@@ -98,11 +136,19 @@
     const whimsical = pendingFlip
     pendingFlip = false
 
+    // A layer added to (or taken off) the bottom of a hanging pile pushes every
+    // layer above it up by its own thickness. Moving the stack down by the same
+    // amount in the same frame is what keeps the pile hanging still.
+    const top = onTable.at(-1)?.uid ?? null
+    const snap = inverted && !whimsical && top === appliedTop
+    appliedTop = top
+
     if (!whimsical && y === appliedY) return
     appliedY = y
 
     flipGravity(stackEl, y, {
       whimsical,
+      snap,
       shadowEl,
       layerEls: onTable.map((l) => layerEls[l.uid]).filter(Boolean),
     })
@@ -121,8 +167,11 @@
 
       dropped.add(layer.uid)
 
-      const below = layers
-        .slice(0, i)
+      // Whatever it lands against takes the hit: the pile under it, or — coming
+      // up from below — the pile over it. Nearest the impact goes last, because
+      // that end of the list feels it most.
+      const hit = layer.under ? layers.slice(i + 1).reverse() : layers.slice(0, i)
+      const below = hit
         .filter((l) => l.role !== 'fallen')
         .map((l) => layerEls[l.uid])
         .filter(Boolean)
@@ -142,19 +191,27 @@
       // Nothing open to land in: it clips the pile and carries on off the table.
       // Its pointer events stay off for good, because it is no longer there.
       if (layer.role === 'fallen') {
-        tumbleOff(el, { onImpact, onGone: () => onfell?.(layer.uid), fromBelow: inverted })
+        tumbleOff(el, {
+          onImpact,
+          onGone: () => onfell?.(layer.uid),
+          fromBelow: layer.under,
+        })
         return
       }
 
       dropIn(el, {
         onImpact,
-        fromBelow: inverted,
+        fromBelow: layer.under,
         onSettled: () => {
           el.style.pointerEvents = ''
         },
       })
     })
   })
+
+  export function getLayerEl(uid) {
+    return layerEls[uid]
+  }
 
   export function getLayerEls() {
     return layers.map((l) => layerEls[l.uid]).filter(Boolean)
@@ -190,6 +247,8 @@
     class="gravity"
     class:on={inverted}
     aria-pressed={inverted}
+    disabled={!complete}
+    title={complete ? undefined : 'Finish the sandwich first'}
     onclick={toggleGravity}
   >
     <span class="arrow" aria-hidden="true">↑</span>
@@ -268,8 +327,13 @@
     transition: background 0.18s ease, border-color 0.18s ease;
   }
 
-  .gravity:hover {
+  .gravity:hover:not(:disabled) {
     background: rgba(24, 15, 10, 0.92);
+  }
+
+  .gravity:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
   }
 
   .gravity.on {

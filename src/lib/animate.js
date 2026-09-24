@@ -73,7 +73,11 @@ function travelStart(layerEl, fromBelow) {
  * goes, an elastic overshoot on arrival, and a stagger down the layers so the stack
  * ripples like a slinky instead of moving like a brick.
  */
-export function flipGravity(stackEl, y, { whimsical = true, layerEls = [], shadowEl } = {}) {
+export function flipGravity(
+  stackEl,
+  y,
+  { whimsical = true, snap = false, layerEls = [], shadowEl } = {},
+) {
   const goingUp = y < 0
 
   // Nothing is resting on the table once it lets go.
@@ -84,6 +88,13 @@ export function flipGravity(stackEl, y, { whimsical = true, layerEls = [], shado
       delay: !reduceMotion && !goingUp && whimsical ? 0.45 : 0,
       overwrite: 'auto',
     })
+  }
+
+  // The layers inside have already jumped by the same amount the other way, so the
+  // pile only stays still if the stack jumps with them.
+  if (snap) {
+    gsap.set(stackEl, { y, overwrite: 'auto' })
+    return
   }
 
   if (reduceMotion || !whimsical) {
@@ -219,14 +230,17 @@ export function sweepAway(layerEls, done) {
   })
 }
 
-/** Lift the top layer back off the sandwich. */
-export function liftOff(layerEl, done) {
+/**
+ * Take the newest layer back off the sandwich, out the way it came in: up off the
+ * top, or down off the bottom of a pile hanging from the ceiling.
+ */
+export function liftOff(layerEl, fromBelow, done) {
   if (reduceMotion || !layerEl) {
     done()
     return
   }
   gsap.to(layerEl, {
-    y: -160,
+    y: fromBelow ? 160 : -160,
     rotation: gsap.utils.random(-14, 14),
     autoAlpha: 0,
     duration: 0.34,

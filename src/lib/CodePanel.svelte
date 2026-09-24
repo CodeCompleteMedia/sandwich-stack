@@ -1,7 +1,7 @@
 <script>
   import { flashCodeLine, revealPanel } from './animate.js'
 
-  let { layers, hoveredUid, onhover } = $props()
+  let { layers, newestUid, hoveredUid, onhover } = $props()
 
   let lineEls = $state({})
 
@@ -26,9 +26,8 @@
 
   // Flash whichever line was just written.
   $effect(() => {
-    const newest = layers.at(-1)
-    if (!newest) return
-    const el = lineEls[newest.uid]
+    if (newestUid == null) return
+    const el = lineEls[newestUid]
     if (el) flashCodeLine(el)
   })
 </script>

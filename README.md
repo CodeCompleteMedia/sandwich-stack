@@ -65,7 +65,16 @@ stumble onto, say so and it can be moved behind a modifier-click or a key combin
   because in normal document flow an earlier element sits higher on the page.
   Reading the code top-to-bottom is reading the sandwich top-to-bottom. Ask students
   to predict the code before they open the panel.
-- **Undo** removes the top layer; **Reset** topples the whole thing.
+- **Flip the gravity switch** (bottom-right of the stage) when every sandwich on
+  the table is whole — bread, at least one filling, bread. A half-built one locks
+  it, in either direction. Under *table gravity* new layers land on top of the pile;
+  under *internet gravity* the pile hangs from the ceiling and new layers attach
+  *underneath* it, so the next sandwich is built below the last. The first slice
+  laid under the pile is that sandwich's top, so it writes the opening `<section>`
+  — the code still reads top-to-bottom the same as the pile does.
+- **Undo** removes the newest layer, but only under the gravity that put it there —
+  flip the switch and Undo stays off until you flip it back or add something new.
+  **Reset** topples the whole thing and puts gravity back to the table.
 
 The markup only becomes properly nested once the top slice lands. Until then the
 panel shows a closing tag with nothing open above it, and fillings sitting at no
